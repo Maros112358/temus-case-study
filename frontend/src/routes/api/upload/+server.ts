@@ -1,90 +1,88 @@
-// import { promises as fs } from 'fs';
-// import path from 'path';
-// import * as pdfjsLib from 'pdfjs-dist';
-// import { OpenAI } from 'openai';
-// import { ChromaClient } from 'chromadb';
+import { promises as fs } from 'fs';
+import path from 'path';
+import { OpenAI } from 'openai';
+import { DataAPIClient } from '@datastax/astra-db-ts';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf';
 
-// // Initialize OpenAI API
-// const openai = new OpenAI()
+// Initialize OpenAI API
+const openai = new OpenAI();
 
-// // Initialize ChromaDB client
-// const chroma = new ChromaClient();
+// Initialize AstraDB client
+const ASTRADB_TOKEN = process.env.ASTRADB_TOKEN || 'xxx';
+const client = new DataAPIClient(ASTRADB_TOKEN);
+const db = client.db('https://2e43f80e-6e86-4407-9343-2e9fc1c44ad9-us-east-2.apps.astra.datastax.com');
 
-// export const POST = async ({ request }) => {
-//   const data = await request.formData();
-//   const file = data.get('file');
-//   const collection = await chroma.getOrCreateCollection({name:'financial_reports'});
+export const POST = async ({ request }) => {
+  const data = await request.formData();
+  const file = data.get('file');
 
-//   if (!file) {
-//     return new Response('No file uploaded', { status: 400 });
-//   }
+  if (!file) {
+    return new Response('No file uploaded', { status: 400 });
+  }
 
-//   const arrayBuffer = await file.arrayBuffer();
-//   const buffer = Buffer.from(arrayBuffer);
-//   const uploadPath = path.join(process.cwd(), 'data', file.name);
-//   const uint8Array = new Uint8Array(arrayBuffer);
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const uint8Array = new Uint8Array(buffer);
+  const uploadPath = path.join('/tmp/data', file.name);
+  const collection = await db.collection('financial_reports');
 
-//   try {
-//     await fs.mkdir(path.dirname(uploadPath), { recursive: true });
-//     await fs.writeFile(uploadPath, buffer);
+  try {
+    await fs.mkdir(path.dirname(uploadPath), { recursive: true });
+    await fs.writeFile(uploadPath, buffer);
 
-//     // Parse the PDF file
-//     const loadingTask = pdfjsLib.getDocument(uint8Array);
-//     const pdfDoc = await loadingTask.promise;
-//     const numPages = pdfDoc.numPages;
+    // Parse the PDF file
+    const pdfData = await extractTextFromPDF(uint8Array);
 
-//     for (let i = 1; i <= numPages; i++) {
-//       const page = await pdfDoc.getPage(i);
-//       const text = await extractTextFromPage(page);
-//       const cleanedText = cleanText(text);
+    for (let i = 0; i < pdfData.pages.length; i++) {
+      const cleanedText = cleanText(pdfData.pages[i].text);
+      const embedding = await getEmbedding(cleanedText);
+      console.log({i})
+      // Store in AstraDB
+      await collection.insertOne({ 
+        text: cleanedText, 
+        file_name: file.name, 
+        page: pdfData.pages[i].pageNumber 
+      }, { vector: embedding });
+    }
 
-//       // Get embeddings from OpenAI
-//       const embedding = await getEmbedding(cleanedText);
-//       console.log
+    return new Response('File uploaded and processed successfully', { status: 200 });
+  } catch (error) {
+    console.error('File upload or processing failed:', error);
+    return new Response(`File upload or processing failed: ${error}`, { status: 500 });
+  }
+};
 
-//       // Create metadata
-//       const metadata = {
-//         file_name: file.name,
-//         page: i,
-//       };
+// Function to extract text from a PDF buffer
+async function extractTextFromPDF(uint8Array) {
+  const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
+  const pdf = await loadingTask.promise;
+  const pages = [];
 
-//       // Store in ChromaDB
-//       await collection.add({
-//         ids: [`${file.name}_${i}`],
-//         documents: [cleanedText],
-//         metadatas: [metadata],
-//         embeddings: [embedding],
-//       });
-//     }
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContentItems = await page.getTextContent();
+    let textContent = '';
 
-//     return new Response('File uploaded and processed successfully', { status: 200 });
-//   } catch (error) {
-//     console.error('File upload or processing failed:', error);
-//     return new Response('File upload or processing failed', { status: 500 });
-//   }
-// };
+    textContentItems.items.forEach((item) => {
+      textContent += item.str + ' ';
+    });
 
-// // Function to extract text from a PDF page
-// async function extractTextFromPage(page: PDFPage) {
-//   const textContent = await page.getTextContent();
-//   let text = '';
-//   textContent.items.forEach((item) => {
-//     text += item.str + ' ';
-//   });
-//   return text.trim();
-// }
+    pages.push({ text: textContent.trim(), pageNumber: i });
+  }
 
-// // Function to clean text
-// function cleanText(text) {
-//   return text.replace(/\s+/g, ' ').trim();
-// }
+  return { pages };
+}
 
-// // Function to get embeddings from OpenAI
-// async function getEmbedding(text) {
-//   const response = await openai.embeddings.create({
-//     model: 'text-embedding-ada-002',
-//     input: text,
-//   });
-//   console.log(response.data[0].embedding.length)
-//   return response.data[0].embedding
-// }
+// Function to clean text
+function cleanText(text) {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+// Function to get embeddings from OpenAI
+async function getEmbedding(text) {
+  const response = await openai.embeddings.create({
+    model: 'text-embedding-ada-002',
+    input: text,
+  });
+  return response.data[0].embedding;
+}
