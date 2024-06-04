@@ -1,6 +1,6 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
-  import { writable } from 'svelte/store';
+  import { createEventDispatcher } from 'svelte'
+  import { writable } from 'svelte/store'
 
   let promptText = '';
   const dispatch = createEventDispatcher();
@@ -16,19 +16,13 @@
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    // Add the new user message to the messages list
     messages.update(currentMessages => {
       const updatedMessages = [
         ...currentMessages, 
         { role: 'user', visibleContent: promptText, content: null}
       ];
-
-      // Indicate that the backend is processing the request
       isLoading.set(true);
-
-      // Send the entire conversation to the backend
       fetchConversation(updatedMessages);
-
       return updatedMessages;
     });
 
