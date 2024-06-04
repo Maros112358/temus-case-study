@@ -1,75 +1,41 @@
-import { json } from '@sveltejs/kit';
-import { OpenAI } from 'openai';
-import { DataAPIClient } from '@datastax/astra-db-ts';
 
-// Initialize AstraDB client
-const ASTRADB_TOKEN = process.env.ASTRADB_TOKEN || 'xxx';
-const client = new DataAPIClient(ASTRADB_TOKEN);
-const db = client.db('https://2e43f80e-6e86-4407-9343-2e9fc1c44ad9-us-east-2.apps.astra.datastax.com');
+/**
+ * Handles answering the user's query
+ */
 
-// Initialize OpenAI
-const openai = new OpenAI();
+import { json } from "@sveltejs/kit";
+import { OpenAI } from "openai";
+import { DataAPIClient } from "@datastax/astra-db-ts";
+import continueConversation from "$lib/utils/continueConversation.js";
+import type { Conversation } from "$lib/types/conversation.js";
+import { ASTRADB_HOST, ASTRADB_TOKEN, TOP_K } from "$lib/const.js";
 
-async function retrieveRelevantData(query: string, topK = 5) {
-  const response = await openai.embeddings.create({
-    model: 'text-embedding-ada-002',
-    input: query,
-  });
-
-  const queryEmbedding = response.data[0].embedding;
-
-  const collection = await db.collection('financial_reports')
-  const cursor = collection.find({}, {
-    vector: queryEmbedding,
-    includeSimilarity: true,
-    limit: topK
-  })
-
-  const results = await cursor.toArray()
-  const extractedData = results.map(item => ({
-    text: item.text,
-    page: item.page,
-    file_name: item.file_name
-  }));
-  console.log({extractedData})
-  return extractedData;
-}
-
-async function generateAnswer(conversation) {
-  const messages = conversation.map(({ visibleContent, ...rest }) => rest);
-
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4',
-    messages: messages,
-  });
-
-  return response.choices[0].message.content;
-}
-
-async function continueConversation(conversation) {
-  const lastMessage = conversation.at(-1);
-  const relevantData = await retrieveRelevantData(lastMessage.visibleContent);
-  const context = JSON.stringify(relevantData);
-
-  lastMessage.content = `Context: ${context}\n\nQuestion: ${lastMessage.visibleContent}`
-  const answer = await generateAnswer(conversation);
-  lastMessage.content = lastMessage.visibleContent;
-
-  conversation.push({
-    content: answer,
-    role: 'assistant',
-    visibleContent: answer,
-  });
-
-  return conversation;
-}
-
+/**
+ * POST /api/prompt
+ */
 export async function POST({ request }) {
   try {
-    const { conversation } = await request.json();
-    const newConversation = await continueConversation(conversation);
+    if (!ASTRADB_TOKEN) {
+      throw Error("ASTRADB_TOKEN is missing");
+    }
+
+    // Initialize ASTRADB
+    const client = new DataAPIClient(ASTRADB_TOKEN);
+    const db = client.db(ASTRADB_HOST);
+
+    // Initialize OpenAI
+    const openai = new OpenAI();
+
+    const { conversation }: { conversation: Conversation } =
+      await request.json();
+    const newConversation = await continueConversation(
+      conversation,
+      db,
+      openai,
+      TOP_K
+    );
     return json({ newConversation });
   } catch (error) {
-    return json({ error: error.message }, { status: 500 });
+    return json({ error }, { status: 500 });
   }
 }

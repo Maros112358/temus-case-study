@@ -31,11 +31,11 @@
     isUploading = false;
 
     if (response.ok) {
-      uploadStatus = 'File uploaded successfully!';
-      await fetchFiles(); // Refresh the file list after upload
-      selectedFileName = 'Choose File'; // Reset the file input label
+      uploadStatus = 'File uploaded successfully!'
+      await fetchFiles()
+      selectedFileName = 'Choose File'
     } else {
-      uploadStatus = 'File upload failed. Please try again.';
+      uploadStatus = 'File upload failed. Please try again.'
     }
   };
 
@@ -51,13 +51,18 @@
   onMount(() => {
     fetchFiles();
   });
+
+  const handleDownload = (fileName) => {
+    const url = `/api/download?file=${encodeURIComponent(fileName)}`;
+    window.location.href = url;
+  };
 </script>
 
 <div class="upload-panel" class:is-uploading={isUploading}>
   <form on:submit={handleSubmit} class="upload-form">
-    <input type="file" accept="application/pdf" on:change={handleFileChange} id="fileInput" />
-    <label for="fileInput" class="custom-file-input">{selectedFileName}</label>
-    <button type="submit" class="upload-button">Upload</button>
+    <input type="file" accept="application/pdf" on:change={handleFileChange} id="fileInput" disabled/>
+    <label for="fileInput" class="custom-file-input" aria-disabled="true">{selectedFileName}</label>
+    <button type="submit" class="upload-button" disabled>Upload</button>
   </form>
   <p class="upload-status">
     {#if isUploading}
@@ -71,6 +76,7 @@
       <li class="file-item">
         <span class="file-icon">📄</span>
         <span class="file-name">{file}</span>
+        <button class="download-button" on:click={() => handleDownload(file)}>Download</button>
       </li>
     {/each}
   </ul>
@@ -107,6 +113,7 @@
   border-radius: 4px;
   cursor: pointer;
   margin-bottom: 10px;
+  cursor: not-allowed;
 }
 
 .upload-button {
@@ -116,6 +123,7 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
+  cursor: not-allowed;
 }
 
 .upload-button:hover, .custom-file-input:hover {
@@ -151,6 +159,20 @@
 
 .file-name {
   flex-grow: 1;
+}
+
+.download-button {
+  background-color: #7289da;
+  color: white;
+  padding: 0.3em 0.5em;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 10px;
+}
+
+.download-button:hover {
+  background-color: #5b6eae;
 }
 
 .is-uploading {
